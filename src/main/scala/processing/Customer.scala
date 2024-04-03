@@ -11,7 +11,7 @@ case class Event(instant: Instant, customer: Customer)
 def process(queue: TQueue[Event]): UIO[Customer] =
   Clock.instant.flatMap { now =>
     queue.take
-      .flatMap { case Event(instant, zio) =>
-        if (now.isBefore(instant)) ZSTM.retry else ZSTM.succeed(zio)
+      .flatMap { case Event(instant, customer) =>
+        if (now.isBefore(instant)) ZSTM.retry else ZSTM.succeed(customer)
       }.commit.forever
   }
