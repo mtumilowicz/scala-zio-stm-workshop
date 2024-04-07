@@ -6,6 +6,12 @@
 * [Software Transactional Memory](https://www.youtube.com/watch?v=CMMH46R9VSY)
 * [Introduction to Software Transactional Memory in Haskell](https://www.youtube.com/watch?v=F0tUPcffT6Y)
 * https://www.oreilly.com/library/view/parallel-and-concurrent/9781449335939/
+* https://web.mit.edu/ha22286/www/papers/MEng20_2.pdf
+* https://docs.rs/stm-core/latest/stm_core/
+* https://clojureverse.org/t/any-examples-of-clojures-stm-being-used-in-the-wild/9665
+* https://dl.acm.org/doi/pdf/10.1145/3386321
+* https://chat.openai.com/
+
 
 * never put any side effect in STM - it may be executed any arbitrary number of times
   * send email
@@ -141,3 +147,20 @@
   Robustness in the presence of failure and cancellation
   A transaction in progress is aborted if an exception occurs, so STM makes it easy
   to maintain invariants on state in the presence of exceptions.
+* This optimism can enable non-conflicting transactions to execute and commit concurrently, increasing throughput. Such designs are motivated by
+  Lamport’s argument that “contention for [shared objects] is rare in a well-designed
+  system” [31], and thus such systems perform well when contention is low
+* With locks the sequential composition of two two threadsafe actions is no longer threadsafe because other threads may interfer in between of these actions. Applying a third lock to protect both may lead to common sources of errors like deadlocks or race conditions.
+* The text book use case for STM is keeping consistency when you want to coordinate changes between multiple refs in a concurrent system. I ask myself when would this be the case in a real life project. What kind of implementation would benefit from it? It seems that it only makes sense if you have state divided into multiple refs as opposed to concentrate state into few independent atoms.
+    * It is an awesome concept, and barely gets used outside small examples, except I think in Haskell. I think it’s difficult to ensure good performance without a lazy language, and difficult to reason about without enforced immutability and monads.
+* Furthermore, databases are already really good at doing what refs do, so assuming the data you’re mutating is being persisted, why bring that into memory just to do what the database is built to do for you?
+* In reading the STM literature one problem I saw often was read-tracking, which I definitely wanted to avoid for performance reasons. In the database world, one technique for avoiding read tracking and read locks is multiversion concurrency control (MVCC)
+    * It seemed to me that MVCC was a great fit for persistent data structures which supported
+    efficient update with structural sharing, making versioning cheap.
+    * So I designed and built an STM around MVCC. (Clojure)
+    * In basic MVCC only writes are tracked, and all reads are done with a consistent basis (as of the transaction start, and incorporating within-transaction writes)
+    * However MVCC can be subject to write-skew, where the basis of a write to X is a read of Y, and Y is not otherwise written, and thus not ensured consistent at transaction end.
+       * Clojure’s STM offers an ensure operation for opt-in tracking of such reads when needed.
+    * In MVCC, each transaction operates on a snapshot of the database at a specific point in time, allowing readers to access consistent data without being blocked by writers.
+* I did not need it, that I was better off organizing all my state into a single atom.
+    * Designing with atoms results in more robust systems because of design and state is held in one place. However, there may be cases where it’s necessary to use refs but by then you’ll be dealing with other situations such as persistence because if you’re worried about distributed state, you’re probably going to be worried about what happens when the electricity goes out.
