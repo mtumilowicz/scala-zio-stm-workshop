@@ -1,35 +1,37 @@
 package bank
 
 import zio.{Console, Scope, ZIO, ZIOAppArgs, ZIOAppDefault}
-import zio.stm.{TRef, USTM, ZSTM}
+import zio.stm.{STM, TRef, USTM, ZSTM}
 
 object Bank {
   var accounts = Map[Int, TRef[BankAccount]]()
 
   case class BankAccount(id: Int, balance: Double)
+
+  case class NotEnoughBalance()
+
   def createBankAccount(id: Int, initialBalance: Double): USTM[TRef[BankAccount]] = for {
     account <- TRef.make(BankAccount(id, initialBalance))
     _ = accounts = accounts + (id -> account)
   } yield account
 
-  def withdraw(accountId: Int, amount: Double) = {
+  def withdraw(accountId: Int, amount: Double): STM[NotEnoughBalance, Unit] = {
     val accountRef = accounts(accountId)
     for {
       account <- accounts(accountId).get
-      result <- if (account.balance >= amount) {
-        accountRef.update(_.copy(balance = account.balance - amount)) *> ZSTM.succeed(true)
-      } else ZSTM.succeed(false)
-    } yield result
+      _ <- STM.fail(new NotEnoughBalance).unless(account.balance >= amount)
+      _ <- accountRef.update(_.copy(balance = account.balance - amount))
+    } yield ()
   }
 
   def deposit(accountId: Int, amount: Double): USTM[Unit] =
     accounts(accountId).update(account => account.copy(balance = account.balance + amount))
 
-  def transfer(fromAccountId: Int, toAccountId: Int, amount: Double) =
+  def transfer(fromAccountId: Int, toAccountId: Int, amount: Double): STM[NotEnoughBalance, Unit] =
     for {
-      withdrawn <- withdraw(fromAccountId, amount)
-      _         <- if (withdrawn) deposit(toAccountId, amount) else ZSTM.unit
-    } yield withdrawn
+      _ <- withdraw(fromAccountId, amount)
+      _ <- deposit(toAccountId, amount)
+    } yield ()
 }
 
 object BankSimulation extends ZIOAppDefault {
