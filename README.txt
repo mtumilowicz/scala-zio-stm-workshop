@@ -1,25 +1,29 @@
 
-* [Software Transactional Memory](https://www.youtube.com/watch?v=bLfxaHIvHfc)
-* [Haskell for Imperative Programmers #30 - Software Transactional Memory (STM)](https://www.youtube.com/watch?v=2lll2VbX8Vc)
-* [CppCon 2015: Brett Hall “Transactional Memory in Practice"](https://www.youtube.com/watch?v=k20nWb9fHj0)
-* [Transactional Memory for Concurrent Programming](https://www.youtube.com/watch?v=4caDLTfSa2Q)
-* [Software Transactional Memory](https://www.youtube.com/watch?v=CMMH46R9VSY)
-* [Introduction to Software Transactional Memory in Haskell](https://www.youtube.com/watch?v=F0tUPcffT6Y)
-* https://www.oreilly.com/library/view/parallel-and-concurrent/9781449335939/
-* https://web.mit.edu/ha22286/www/papers/MEng20_2.pdf
-* https://docs.rs/stm-core/latest/stm_core/
-* https://clojureverse.org/t/any-examples-of-clojures-stm-being-used-in-the-wild/9665
-* https://dl.acm.org/doi/pdf/10.1145/3386321
-* https://chat.openai.com/
-* https://www.linkedin.com/advice/0/how-do-you-optimize-performance-scalability-software
-* https://www.diva-portal.org/smash/get/diva2:828358/FULLTEXT01.pdf
-* https://gcc.gnu.org/wiki/TransactionalMemory
-* https://www.schoolofhaskell.com/school/advanced-haskell/beautiful-concurrency/3-software-transactional-memory
-* https://www.baeldung.com/java-multiverse-stm
-* https://objectcomputing.com/resources/publications/sett/september-2009-software-transactional-memory
-* https://link.springer.com/referenceworkentry/10.1007/978-0-387-39940-9_348
-* https://wiki.haskell.org/Software_transactional_memory
+* references
+    * [Software Transactional Memory](https://www.youtube.com/watch?v=bLfxaHIvHfc)
+    * [Haskell for Imperative Programmers #30 - Software Transactional Memory (STM)](https://www.youtube.com/watch?v=2lll2VbX8Vc)
+    * [CppCon 2015: Brett Hall “Transactional Memory in Practice"](https://www.youtube.com/watch?v=k20nWb9fHj0)
+    * [Transactional Memory for Concurrent Programming](https://www.youtube.com/watch?v=4caDLTfSa2Q)
+    * [Software Transactional Memory](https://www.youtube.com/watch?v=CMMH46R9VSY)
+    * [Introduction to Software Transactional Memory in Haskell](https://www.youtube.com/watch?v=F0tUPcffT6Y)
+    * https://www.oreilly.com/library/view/parallel-and-concurrent/9781449335939/
+    * https://web.mit.edu/ha22286/www/papers/MEng20_2.pdf
+    * https://docs.rs/stm-core/latest/stm_core/
+    * https://clojureverse.org/t/any-examples-of-clojures-stm-being-used-in-the-wild/9665
+    * https://dl.acm.org/doi/pdf/10.1145/3386321
+    * https://chat.openai.com/
+    * https://www.linkedin.com/advice/0/how-do-you-optimize-performance-scalability-software
+    * https://www.diva-portal.org/smash/get/diva2:828358/FULLTEXT01.pdf
+    * https://gcc.gnu.org/wiki/TransactionalMemory
+    * https://www.schoolofhaskell.com/school/advanced-haskell/beautiful-concurrency/3-software-transactional-memory
+    * https://www.baeldung.com/java-multiverse-stm
+    * https://objectcomputing.com/resources/publications/sett/september-2009-software-transactional-memory
+    * https://link.springer.com/referenceworkentry/10.1007/978-0-387-39940-9_348
+    * https://wiki.haskell.org/Software_transactional_memory
+    * https://www.cs.carleton.edu/faculty/dmusican/cs348/stm.html
+    * https://zio.dev/reference/stm/
 
+* Within atomic blocks, you can reason about your code as if the program were sequential.
 * software transactional memory (STM) is a method of concurrency control in which shared-memory accesses are grouped into transactions which either succeed or fail to commit in their entirety.
 * The main benefits of STM are composability and modularity.
     * That is, using STM you can write concurrent abstractions that can be easily composed with any other abstraction built using STM, without exposing the details of how your abstraction ensures safety
@@ -239,3 +243,26 @@
 
       Clojure provides a mechanism for avoiding write skew. See the ensure function discussed later.
 * In the context of multithreaded software applications, these terms can be described as follows. A deadlock occurs when concurrently running threads cannot proceed because they are each waiting on a resource for which another has acquired exclusive access. A livelock occurs when concurrently running threads are performing work (as opposed to be being blocked, waiting on resources), but cannot complete due to something that other threads have done or not done. A race condition occurs when the outcome of a thread is affected by the timing of changes to shared state made by another concurrently running thread.
+* The notion of composability is critical to building modular software.
+    * If we take two pieces of code that individually work correctly, the composition of the two should also be correct.
+* In transactional memory we get these aspects of ACID properties:
+
+  Atomicity — On write operations, we want atomic update, which means the update operation either should run at once or not at all.
+
+  Consistency — On read operations, we want consistent view of the state of the program that ensures us all reference to the state, gets the same value whenever they get the state.
+
+  Isolated — If we have multiple updates, we need to perform these updates in isolated transactions. So each transaction doesn't affect other concurrent transactions. No matter how many fibers are running any number of transactions. None of them have to worry about what is happening in the other transactions.
+* Advantage of Using STM
+    Composable Transaction — Combining atomic operations using locking-oriented programming is almost impossible. ZIO provides the STM data type, which has lots of combinators to compose transactions.
+
+    Declarative — ZIO STM is completely declarative. It doesn't require us to think about low-level primitives. It doesn't force us to think about the ordering of locks. Reasoning concurrent program in a declarative fashion is very simple. We can just focus on the logic of our program and run it in a concurrent environment deterministically. The user code is much simpler of course because it doesn't have to deal with the concurrency at all.
+
+    Optimistic Concurrency — In most cases, we are allowed to be optimistic, unless there is tremendous contention. So if we haven't tremendous contention it really pays to be optimistic. It allows a higher volume of concurrent transactions.
+
+    Lock-Free — All operations are non-blocking using lock-free algorithms.
+
+    Fine-Grained Locking— Coarse-grained locking is very simple to implement, but it has a negative impact on performance, while fine-grained locking significantly has better performance, but it is very cumbersome, sophisticated, and error-prone even for experienced programmers. We would like to have the ease of use of coarse-grain locking, but at the same time, we would like to have the efficiency of fine-grain locking. ZIO provides several data types which are a very coarse way of using concurrency, but they are implemented as if every single word were lockable. So the granularity of concurrency is fine-grained. It increases the performance and concurrency. For example, if we have two fibers accessing the same TArray, one of them read and write on the first index of our array, and another one is read and write to the second index of that array, they will not conflict. It is just like as if we were locking the indices, not the whole array.
+* problems
+    Large Allocations — We should be very careful in choosing the best data structure using for using STM operations. For example, if we use a single data structure with TRef and that data structure occupies a big chunk of memory. Every time we are updating this data structure during the transaction, the runtime system needs a fresh copy of this chunk of memory.
+
+    Running Expensive Operations— The beautiful feature of the retry combinator is when we decide to retry the transaction, the retry avoids the busy loop. It waits until any of the underlying transactional variables have changed. However, we should be careful about running expensive operations multiple times.
