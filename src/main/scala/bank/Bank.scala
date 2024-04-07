@@ -3,19 +3,19 @@ package bank
 import zio.{Console, Scope, ZIO, ZIOAppArgs, ZIOAppDefault}
 import zio.stm.{STM, TRef, USTM, ZSTM}
 
-object Bank {
+class Bank {
   var accounts = Map[Int, TRef[BankAccount]]()
 
-  case class BankAccount(id: Int, balance: Double)
+  case class BankAccount(id: Int, balance: BigDecimal)
 
   case class NotEnoughBalance()
 
-  def createBankAccount(id: Int, initialBalance: Double): USTM[TRef[BankAccount]] = for {
+  def createBankAccount(id: Int, initialBalance: BigDecimal): USTM[TRef[BankAccount]] = for {
     account <- TRef.make(BankAccount(id, initialBalance))
     _ = accounts = accounts + (id -> account)
   } yield account
 
-  def withdraw(accountId: Int, amount: Double): STM[NotEnoughBalance, Unit] = {
+  def withdraw(accountId: Int, amount: BigDecimal): STM[NotEnoughBalance, Unit] = {
     val accountRef = accounts(accountId)
     for {
       account <- accounts(accountId).get
@@ -24,10 +24,10 @@ object Bank {
     } yield ()
   }
 
-  def deposit(accountId: Int, amount: Double): USTM[Unit] =
+  def deposit(accountId: Int, amount: BigDecimal): USTM[Unit] =
     accounts(accountId).update(account => account.copy(balance = account.balance + amount))
 
-  def transfer(fromAccountId: Int, toAccountId: Int, amount: Double): STM[NotEnoughBalance, Unit] =
+  def transfer(fromAccountId: Int, toAccountId: Int, amount: BigDecimal): STM[NotEnoughBalance, Unit] =
     for {
       _ <- withdraw(fromAccountId, amount)
       _ <- deposit(toAccountId, amount)
@@ -35,12 +35,13 @@ object Bank {
 }
 
 object BankSimulation extends ZIOAppDefault {
+  val bank = new Bank
   val accountSimulation = for {
-    _ <- Bank.createBankAccount(1, 100.0).commit
-    _ <- Bank.createBankAccount(2, 200.0).commit
-    _ <- Bank.transfer(1, 2, 50.0).commit
-    b1 <- Bank.accounts(1).get.commit
-    b2 <- Bank.accounts(2).get.commit
+    _ <- bank.createBankAccount(1, 100.0).commit
+    _ <- bank.createBankAccount(2, 200.0).commit
+    _ <- bank.transfer(1, 2, 50.0).commit
+    b1 <- bank.accounts(1).get.commit
+    b2 <- bank.accounts(2).get.commit
     _ <- Console.printLine(s"b1: $b1")
     _ <- Console.printLine(s"b1: $b2")
   } yield ()
