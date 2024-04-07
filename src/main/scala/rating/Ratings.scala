@@ -4,19 +4,13 @@ import zio.{Console, Scope, ZIO, ZIOAppArgs, ZIOAppDefault}
 import zio.stm.{TMap, TRef, ZSTM}
 
 case class Top(size: Int, values: List[Int] = Nil) {
-  def add(element: Int): Top = {
-    if (values.size < size || element < values.max) {
-      val updatedList =
-        if (values.size >= size) {
-          (values :+ element).sorted.dropRight(1)
-        } else {
-          values :+ element
-        }
-      Top(size, updatedList)
+  def add(element: Int): Top =
+    val v = if (values.size >= size) {
+      (values :+ element).sorted.tail
     } else {
-      this
+      values :+ element
     }
-  }
+    Top(size, v)
 }
 
 case class Ratings(top: TRef[Top], all: TMap[String, Int]) {
@@ -45,7 +39,8 @@ object RatingSimulation extends ZIOAppDefault {
     _ <- r.add("4", 4)
     top <- r.top.get.commit
     _ <- Console.printLine(s"top: $top")
-    _ <- r.add("6", 2)
+    _ <- r.add("5", 2)
+    _ <- r.add("6", 100)
     top <- r.top.get.commit
     _ <- Console.printLine(s"top: $top")
   } yield ()
