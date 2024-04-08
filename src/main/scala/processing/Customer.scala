@@ -1,40 +1,47 @@
 package processing
 
 import processing.Event.given
-import zio.stm.{TPriorityQueue, ZSTM}
-import zio.{Clock, UIO, ZIO, ZIOAppArgs, ZIOAppDefault, durationInt}
+import zio.stm.{TPriorityQueue, TRef, ZSTM}
+import zio.{Queue, UIO, ZIO, ZIOAppArgs, ZIOAppDefault, durationInt}
 
-import java.time.Instant
+case class Customer(id: Int)
 
-class Customer
-
-case class Event(instant: Instant, customer: Customer)
+case class Event(orderId: Long, customer: Customer)
 
 object Event {
-  given Ordering[Event] = Ordering.by(_.instant)
+  given Ordering[Event] = Ordering.by(_.orderId)
 }
 
-def process(queue: TPriorityQueue[Event]): UIO[Customer] =
-  Clock.instant.flatMap { now =>
-    (for {
-      event <- queue.take
-      result <- if (now.isBefore(event.instant)) {
-        println("retry");
-        ZSTM.retry
-      } else {
-        println("processed");
-        ZSTM.succeed(event.customer)
-      }
-    } yield result).commit.forever
-  }
+object EventProcessor {
+
+  def process(input: TPriorityQueue[Event], processed: Queue[Customer]): UIO[Unit] = for {
+    nextProcessedRef <- TRef.make[Long](1).commit
+    _ <- (for {
+      customer <- takeIfReadyToProcess(input, nextProcessedRef)
+      result <- processed.offer(customer)
+    } yield ()).forever
+  } yield ()
+
+  private def takeIfReadyToProcess(input: TPriorityQueue[Event], nextProcessedRef: TRef[Long]) = (for {
+    event <- input.take
+    nextProcessed <- nextProcessedRef.getAndUpdate(_ + 1)
+    result <- ZSTM.retry.when(nextProcessed != event.orderId)
+  } yield event.customer).commit
+
+}
 
 object Process extends ZIOAppDefault {
 
   override def run: ZIO[ZIOAppArgs, Any, Any] = for {
-    queue <- TPriorityQueue.make[Event]().commit
-    f1 <- process(queue).fork
-    _ <- queue.offer(Event(Instant.parse("2030-12-03T10:15:30.00Z"), new Customer)).commit
-    _ <- queue.offer(Event(Instant.parse("2010-12-03T10:15:30.00Z"), new Customer)).commit.delay(5.seconds)
-    _ <- f1.join
+    input <- TPriorityQueue.make[Event]().commit
+    processed <- Queue.unbounded[Customer]
+    f1 <- EventProcessor.process(input, processed).fork
+    _ <- input.offer(Event(6, Customer(1))).commit.delay(1.seconds)
+    _ <- input.offer(Event(5, Customer(2))).commit.delay(1.seconds)
+    _ <- input.offer(Event(1, Customer(3))).commit.delay(1.seconds)
+    _ <- input.offer(Event(3, Customer(4))).commit.delay(1.seconds)
+    _ <- input.offer(Event(2, Customer(5))).commit.delay(1.seconds)
+    _ <- processed.size.repeatUntil(_ == 3)
+    _ <- f1.interrupt
   } yield ()
 }
