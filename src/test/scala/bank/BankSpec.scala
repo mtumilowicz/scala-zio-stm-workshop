@@ -12,8 +12,8 @@ object BankSpec extends ZIOSpecDefault {
         check(Gen.bigDecimal(0.01, 1.0)) { amount =>
           val accountId1 = 1
           val accountId2 = 2
-          val bank = new Bank
           for {
+            bank <- Bank()
             account1 <- bank.createBankAccount(accountId1, 10000.0)
             account2 <- bank.createBankAccount(accountId2, 10000.0)
 
@@ -36,8 +36,8 @@ object BankSpec extends ZIOSpecDefault {
         check(Gen.listOfN(100)(Gen.bigDecimal(0.01, 10))) { amounts =>
           val accountId1 = 1
           val accountId2 = 2
-          val bank = new Bank
           for {
+            bank <- Bank()
             account1 <- bank.createBankAccount(accountId1, 10000.0)
             account2 <- bank.createBankAccount(accountId2, 10000.0)
 
@@ -59,8 +59,8 @@ object BankSpec extends ZIOSpecDefault {
         check(Gen.listOfN(100)(Gen.bigDecimal(101, 1000))) { amounts =>
           val accountId1 = 1
           val accountId2 = 2
-          val bank = new Bank
           for {
+            bank <- Bank()
             account1 <- bank.createBankAccount(accountId1, 100)
             account2 <- bank.createBankAccount(accountId2, 100)
 
