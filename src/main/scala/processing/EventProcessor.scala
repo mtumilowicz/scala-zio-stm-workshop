@@ -29,19 +29,3 @@ object EventProcessor {
   } yield event.customer).commit
 
 }
-
-object Process extends ZIOAppDefault {
-
-  override def run: ZIO[ZIOAppArgs, Any, Any] = for {
-    input <- TPriorityQueue.make[Event]().commit
-    processed <- Queue.unbounded[Customer]
-    f1 <- EventProcessor.process(input, processed).fork
-    _ <- input.offer(Event(6, Customer(1))).commit.delay(1.seconds)
-    _ <- input.offer(Event(5, Customer(2))).commit.delay(1.seconds)
-    _ <- input.offer(Event(1, Customer(3))).commit.delay(1.seconds)
-    _ <- input.offer(Event(3, Customer(4))).commit.delay(1.seconds)
-    _ <- input.offer(Event(2, Customer(5))).commit.delay(1.seconds)
-    _ <- processed.size.repeatUntil(_ == 3)
-    _ <- f1.interrupt
-  } yield ()
-}

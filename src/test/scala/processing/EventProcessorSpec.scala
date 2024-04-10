@@ -7,7 +7,6 @@ import zio.{Queue, Random, ZIO}
 
 object EventProcessorSpec extends ZIOSpecDefault {
 
-
   override def spec: Spec[TestEnvironment, Any] =
     suite("EventProcessor tests")(
       test("process should correctly process if orderIds are consecutive") {
