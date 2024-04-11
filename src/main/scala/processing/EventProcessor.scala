@@ -1,8 +1,7 @@
 package processing
 
-import processing.Event.given
 import zio.stm.{TPriorityQueue, TRef, ZSTM}
-import zio.{Queue, UIO, ZIO, ZIOAppArgs, ZIOAppDefault, durationInt}
+import zio.{Queue, UIO}
 
 case class Customer(id: Int)
 

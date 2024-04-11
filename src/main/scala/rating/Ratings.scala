@@ -1,7 +1,7 @@
 package rating
 
-import zio.{Console, Scope, UIO, ZIO, ZIOAppArgs, ZIOAppDefault}
-import zio.stm.{TMap, TRef, USTM, ZSTM}
+import zio.UIO
+import zio.stm.{TMap, TRef}
 
 case class Top(size: Int, values: Set[Int] = Set.empty) {
   def add(element: Int): Top = {
@@ -16,8 +16,8 @@ case class Top(size: Int, values: Set[Int] = Set.empty) {
 
 case class Ratings(top: TRef[Top], all: TMap[String, Int]) {
   def add(id: String, rating: Int): UIO[Unit] =
-      (for {
-        _ <- top.update(_.add(rating))
-        _ <- all.putIfAbsent(id, rating)
-      } yield ()).commit
+    (for {
+      _ <- top.update(_.add(rating))
+      _ <- all.putIfAbsent(id, rating)
+    } yield ()).commit
 }
