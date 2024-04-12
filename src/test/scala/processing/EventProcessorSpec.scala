@@ -14,9 +14,9 @@ object EventProcessorSpec extends ZIOSpecDefault {
           for {
             orderIds <- Random.shuffle((1 to n).toList)
             customerId <- Random.nextInt
-            events = orderIds.map(orderId => Event(orderId.toLong, Customer(customerId)))
+            events = orderIds.map(step => Event(Step(step), CustomerId(customerId)))
             input <- TPriorityQueue.make[Event]().commit
-            processed <- Queue.unbounded[Customer]
+            processed <- Queue.unbounded[CustomerId]
             _ <- EventProcessor.process(input, processed).fork
             _ <- ZIO.foreachDiscard(events)(event => input.offer(event).commit)
             _ <- processed.size.repeatUntil(_ == n)
@@ -26,19 +26,19 @@ object EventProcessorSpec extends ZIOSpecDefault {
         }
       },
       test("process should stop processing events at first orderId gap") {
-        check(Gen.int(2, 49), Gen.int(51, 100)) { (n1, n2) =>
-          val orderIds = ((1 to n1) ++ (n2 to 100)).toSet
+        check(Gen.int(2, 49), Gen.int(51, 100)) { (gapStart, gapEnd) =>
+          val orderIds = ((1 to gapStart) ++ (gapEnd to 100)).toSet
           for {
             customerId <- Random.nextInt
-            events = orderIds.map(orderId => Event(orderId.toLong, Customer(customerId)))
+            events = orderIds.map(step => Event(Step(step), CustomerId(customerId)))
             input <- TPriorityQueue.make[Event]().commit
-            processed <- Queue.unbounded[Customer]
+            processed <- Queue.unbounded[CustomerId]
             _ <- EventProcessor.process(input, processed).fork
             _ <- ZIO.foreachDiscard(events)(event => input.offer(event).commit)
-            _ <- processed.size.repeatUntil(_ == n1)
+            _ <- processed.size.repeatUntil(_ == gapStart)
             processedCustomers <- processed.takeAll
             inputSize <- input.size.commit
-          } yield assertTrue(processedCustomers.size == n1, inputSize == 100 - n2 + 1)
+          } yield assertTrue(processedCustomers.size == gapStart, inputSize == 100 - gapEnd + 1)
         }
       }
     )
