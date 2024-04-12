@@ -1,9 +1,6 @@
 package rating
 
-import zio.test.ZIOSpecDefault
-import zio.stm.{TMap, TPriorityQueue, TRef}
 import zio.test.{Gen, Spec, TestEnvironment, ZIOSpecDefault, assertTrue, check}
-import zio.{Queue, Random, ZIO}
 
 object TopSpec extends ZIOSpecDefault {
 
