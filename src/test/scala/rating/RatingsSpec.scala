@@ -7,6 +7,9 @@ import zio.{UIO, ZIO}
 
 object RatingsSpec extends ZIOSpecDefault {
 
+  def genRatings(biggerThan: Int, smallerThan: Int): Gen[Any, List[(String, Int)]] =
+    Gen.listOfBounded(biggerThan, smallerThan)(Gen.uuid.map(_.toString) <*> Gen.int)
+
   val spec: Spec[TestEnvironment, Any] =
     suite("RatingsSpec")(
       test("adding a rating should update top and all") {
@@ -21,45 +24,30 @@ object RatingsSpec extends ZIOSpecDefault {
           } yield assertTrue(top.values.contains(rating), all.contains(rating))
         }
       },
-      test("indexing many ratings should keep top and all") {
-        check(Gen.listOfBounded(20, 1000)(Gen.uuid.map(_.toString) <*> Gen.int)) { list =>
-          val size = 10
+      test("indexing many ratings should update top and all") {
+        check(genRatings(20, 1000)) { list =>
+          val top = 10
           for {
-            topRef <- TRef.make(Top(size)).commit
+            topRef <- TRef.make(Top(top)).commit
             all <- TMap.empty[String, Int].commit
             ratings = Ratings(topRef, all)
             _ <- ratings.addAll(list)
             allValues <- all.toMap.commit
             topValues <- ratings.top.get.map(_.values).commit
           } yield assertTrue(
-            topValues == allValues.values.toList.sorted(Ordering[Int].reverse).take(size).toSet,
+            topValues == allValues.values.toList.sorted(Ordering[Int].reverse).take(top).toSet,
             list.forall { case (id, rating) => allValues(id) == rating })
         }
       },
-      test("indexing many ratings should keep top and all") {
-        check(Gen.listOfBounded(20, 1000)(Gen.uuid.map(_.toString) <*> Gen.int)) { list =>
+      test("indexing many ratings should keep top and all synchronized at any point") {
+        check(genRatings(20, 1000)) { list =>
           val size = 10
           for {
             topRef <- TRef.make(Top(size)).commit
             all <- TMap.empty[String, Int].commit
             ratings = Ratings(topRef, all)
-            _ <- ratings.addAll(list)
-            allValues <- all.toMap.commit
-            topValues <- ratings.top.get.map(_.values).commit
-          } yield assertTrue(
-            topValues == allValues.values.toList.sorted(Ordering[Int].reverse).take(size).toSet,
-            list.forall { case (id, rating) => allValues(id) == rating })
-        }
-      },
-      test("indexing many ratings should keep top and all sampled at any time") {
-        check(Gen.listOfBounded(20, 5000)(Gen.uuid.map(_.toString) <*> Gen.int)) { list =>
-          val size = 10
-          for {
-            topRef <- TRef.make(Top(size)).commit
-            all <- TMap.empty[String, Int].commit
-            ratings = Ratings(topRef, all)
-            f1 <- ratings.addAll(list).fork
-            f2 <- (for {
+            addingJob <- ratings.addAll(list).fork
+            checkingJob <- (for {
               allValues <- all.toMap.commit
               topValues <- ratings.top.get.map(_.values).commit
               _ <- ZIO.fail("should never fail")
@@ -67,10 +55,9 @@ object RatingsSpec extends ZIOSpecDefault {
                   topValues == allValues.values.toList.sorted(Ordering[Int].reverse).take(size).toSet
                     && list.forall { case (id, rating) => allValues(id) == rating }
                 )
-            } yield ()
-              ).forever.fork
-            _ <- f1.join
-            _ <- f2.interrupt
+            } yield ()).forever.fork
+            _ <- addingJob.join
+            _ <- checkingJob.interrupt
           } yield assertCompletes
         }
       },
