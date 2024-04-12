@@ -11,6 +11,37 @@ object SupervisorSpec extends ZIOSpecDefault {
   def genActorImpl: Gen[Sized, ActorImpl] = Gen.const(new ActorImpl)
   override def spec: Spec[TestEnvironment, Any] =
     suite("Supervisor")(
+      test("transfer all actors from one supervisor to the other") {
+        check(Gen.setOf(genActorImpl)) { actors =>
+          for {
+            reentrantLock1 <- TReentrantLock.make.commit
+            reentrantLock2 <- TReentrantLock.make.commit
+            supervisor1 = new SupervisorImpl(reentrantLock1, mutable.Set.from(actors))
+            supervisor2 = new SupervisorImpl(reentrantLock2, mutable.Set.empty)
+            _ <- ZIO.foreachParDiscard(actors) { actor =>
+              supervisor1.transferTo(actor, supervisor2)
+                .option
+            }
+          } yield assertTrue(supervisor1.actors.isEmpty, supervisor2.actors == actors)
+        }
+      },
+      test("swap all actors of two supervisors") {
+        check(Gen.setOf(genActorImpl), Gen.setOf(genActorImpl)) { (actors1, actors2) =>
+          for {
+            reentrantLock1 <- TReentrantLock.make.commit
+            reentrantLock2 <- TReentrantLock.make.commit
+            supervisor1 = new SupervisorImpl(reentrantLock1, mutable.Set.from(actors1))
+            supervisor2 = new SupervisorImpl(reentrantLock2, mutable.Set.from(actors2))
+            _ <- ZIO.foreachParDiscard(actors1) { actor =>
+              supervisor1.transferTo(actor, supervisor2)
+                .option
+            } <&> ZIO.foreachParDiscard(actors2) { actor =>
+              supervisor2.transferTo(actor, supervisor1)
+                .option
+            }
+          } yield assertTrue(supervisor1.actors == actors2, supervisor2.actors == actors1)
+        }
+      },
       test("after transfers list of actors should be the same") {
         check(Gen.setOf(genActorImpl), Gen.setOf(genActorImpl)) { (actors1, actors2) =>
           for {
