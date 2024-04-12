@@ -3,41 +3,42 @@ package bank
 import zio.stm.{STM, TMap, TRef, USTM}
 import zio.{IO, UIO}
 
-case class Account(id: Int, balance: BigDecimal)
+case class AccountId(value: Int)
+case class Account(id: AccountId, balance: BigDecimal)
 
-class Bank(accountsRef: TMap[Int, TRef[Account]]) {
+class Bank(accountsRef: TMap[AccountId, TRef[Account]]) {
 
   case class NotEnoughBalance()
 
-  case class AccountNotExists(id: Int)
+  case class AccountNotExists(id: AccountId)
 
-  case class AccountAlreadyExists(id: Int)
+  case class AccountAlreadyExists(id: AccountId)
 
-  def getAccount(id: Int): IO[AccountNotExists, Account] =
+  def getAccount(id: AccountId): IO[AccountNotExists, Account] =
     getAccountRef(id).flatMap(_.get).commit
 
-  def createBankAccount(id: Int, initialBalance: BigDecimal): IO[AccountAlreadyExists, TRef[Account]] =
+  def createBankAccount(id: AccountId, initialBalance: BigDecimal): IO[AccountAlreadyExists, TRef[Account]] =
     (for {
       _ <- STM.fail(AccountAlreadyExists(id)).whenSTM(contains(id))
       account <- TRef.make(Account(id, initialBalance))
       _ <- accountsRef.put(id, account)
     } yield account).commit
 
-  def transfer(fromAccountId: Int, toAccountId: Int, amount: BigDecimal): IO[NotEnoughBalance | AccountNotExists, Unit] =
+  def transfer(fromAccount: AccountId, toAccount: AccountId, amount: BigDecimal): IO[NotEnoughBalance | AccountNotExists, Unit] =
     (for {
-      _ <- withdraw(fromAccountId, amount)
-      _ <- deposit(toAccountId, amount)
+      _ <- withdraw(fromAccount, amount)
+      _ <- deposit(toAccount, amount)
     } yield ()).commit
 
-  private def contains(id: Int): USTM[Boolean] =
+  private def contains(id: AccountId): USTM[Boolean] =
     accountsRef.contains(id)
 
-  private def getAccountRef(id: Int): STM[AccountNotExists, TRef[Account]] = for {
+  private def getAccountRef(id: AccountId): STM[AccountNotExists, TRef[Account]] = for {
     account <- accountsRef.get(id)
     account <- STM.fromOption(account).orElseFail(AccountNotExists(id))
   } yield account
 
-  private def withdraw(accountId: Int, amount: BigDecimal): STM[NotEnoughBalance | AccountNotExists, Unit] = {
+  private def withdraw(accountId: AccountId, amount: BigDecimal): STM[NotEnoughBalance | AccountNotExists, Unit] = {
     for {
       accountRef <- getAccountRef(accountId)
       account <- accountRef.get
@@ -46,7 +47,7 @@ class Bank(accountsRef: TMap[Int, TRef[Account]]) {
     } yield ()
   }
 
-  private def deposit(accountId: Int, amount: BigDecimal): STM[AccountNotExists, Unit] =
+  private def deposit(accountId: AccountId, amount: BigDecimal): STM[AccountNotExists, Unit] =
     getAccountRef(accountId).flatMap(_.update(account => account.copy(balance = account.balance + amount)))
 }
 
