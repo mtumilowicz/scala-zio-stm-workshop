@@ -39,6 +39,11 @@
     * lost wake-ups
     * composition/encapsulation dies
 
+* Coarse-grained locking is very simple to implement, but it has a negative impact on performance, while fine-grained locking significantly has better performance, but it is very cumbersome, sophisticated, and error-prone even for experienced programmers. We would like to have the ease of use of coarse-grain locking, but at the same time, we would like to have the efficiency of fine-grain locking. ZIO provides several data types which are a very coarse way of using concurrency, but they are implemented as if every single word were lockable. So the granularity of concurrency is fine-grained. It increases the performance and concurrency. For example, if we have two fibers accessing the same TArray, one of them read and write on the first index of our array, and another one is read and write to the second index of that array, they will not conflict. It is just like as if we were locking the indices, not the whole array.
+* A deadlock occurs when concurrently running threads cannot proceed because they are each waiting on a resource for which another has acquired exclusive access
+* A livelock occurs when concurrently running threads are performing work (as opposed to be being blocked, waiting on resources), but cannot complete due to something that other threads have done or not done
+* A race condition occurs when the outcome of a thread is affected by the timing of changes to shared state made by another concurrently running thread.
+
 # software transaction memory
 * concept ported from the SQL database world
     * SQL transactions satisfy ACID (Atomicity, Consistency, Isolation, Durability) properties
@@ -49,23 +54,59 @@
             * means that either all the changes in a transaction will be made successfully (commit) or none of them will be (rollback)
         * Isolation
             * transactions are isolated from each other such that each transaction sees a consistent view of memory
+                * none of them have to worry about what is happening in the other transactions
             * it is as if action takes a snapshot of the state of the world when it begins running, and then executes against that snapshot
         * Consistency
             * transactions happen successfully if there aren't any conflicting changes
+            * ensures us all reference to the state gets the same value whenever they get the state
 * is a method of concurrency control in which shared-memory accesses are grouped into transactions which either succeed or fail to commit in their entirety
     * all or nothing semantics
     * within atomic blocks, you can reason about your code as if the program were sequential
 * benefits
     * composability
         * easily composed with any other abstraction built using STM
-        * mutexes don't compose
+        * combining atomic operations using locking-oriented programming is almost impossible
+            * mutexes don't compose
+        * is critical to building modular software
+            * two pieces of code that individually work correctly => composition of the two should also be correct
     * modularity
         * not expose the details of how your abstraction ensures safety
         * not the case with other forms of concurrent communication, such as locks or MVars
+    * declarative
+        * doesn't require to think about low-level primitives
+        * doesn't force to think about the ordering of locks
+        * reasoning is simplified
+            * just focus on the logic of our program and run it in a concurrent environment deterministically
+        * user code is much simpler of course because it doesn't have to deal with the concurrency at all
+
+            Optimistic Concurrency — In most cases, we are allowed to be optimistic, unless there is tremendous contention. So if we haven't tremendous contention it really pays to be optimistic. It allows a higher volume of concurrent transactions.
+
+    * lock-free — all operations are non-blocking using lock-free algorithms
+        * implementations can guarantee that deadlock, livelock and race conditions will never occur
+
+* drawbacks
+    * potential for a large number of transaction retries resulting in wasted work
+    * overhead imposed by transaction bookkeeping such as storing histories of committed values, storing in-transaction values and acquiring locks before committing changes
+    * tool support is lacking
+        * example
+            * learning which variables had write conflicts
+            * identify how often each transaction retries and why they retry would make it easier to tune applications when necessary
 * good practices
     * never put any side effect in STM - it may be executed any arbitrary number of times
         * if a conflict arises on commit -> rerun
         * example: send email, fire missile
+    * avoid large allocations
+        * every time we are updating data during the transaction, the runtime system needs a fresh copy of this chunk of memory
+    * avoid running expensive operations
+
+
+
+* clojure context
+    * write skew
+        * For example, suppose a town places a restriction (constraint) on the total number of dogs and cats that a family can own. Let's say the limit is three. When a person obtains a new dog or cat, they are entered in a database. John and his wife Mary have one dog and one cat. John adopts another dog while at the same time Mary adopts a cat. These transactions occur concurrently. Remember that transactions only see changes made by other transactions that have committed. John's transaction attempts to modify the number of dogs they own. The constraint isn't violated because they now have a total of three. Mary's transaction attempts to modify the number of cats they own. Like in the other transaction, the constraint isn't violated because they now have a total of three. Both transactions are allowed to commit, resulting in a total of four dogs and cats which violates the constraint. This is permitted because neither transaction attempts to commit a change to data that is being modified by another concurrent transaction.
+
+          Clojure provides a mechanism for avoiding write skew. See the ensure function discussed later.
+
 
 
 * optimistic concurrency
@@ -243,41 +284,6 @@
     * From the perspective of other threads, all the memory changes made within a transaction appear to happen at the same moment when a transaction is finished committing.
     * If the software crashes or there is a hardware malfunction, data in memory is typically lost.
 *  this article distinguishes between a "transaction" and a "transaction try". A transaction includes one or more transaction tries. A transaction that completes without having to retry runs a single transaction try. Otherwise there are more than one.
-* Benefits of using transactional memory include the following:
 
-  It provides increased concurrency which means there are more opportunities for processing to be performed simultaneously instead of serially. This is especially true for transactions that only read data. Lock-based concurrency doesn't allow this kind of overlapping execution because it takes a pessimistic approach rather than an optimistic one.
-  It is easier to write correct code using transactional memory than writing code that uses locks. The need to determine the locks to be acquired and the order in which to acquire them is removed. Instead, developers identify sections of code that require a consistent view of the set of variables it reads and writes.
-  Implementations can guarantee that deadlock [5], livelock [6] and race conditions [7] will never occur.
-* Issues with using transactional memory include the following:
 
-  There is a potential for a large number of transaction retries resulting in wasted work.
-  There is overhead imposed by transaction bookkeeping such as storing histories of committed values, storing in-transaction values and acquiring locks before committing changes.
-  Tool support is currently lacking. For example, having tools that identify how often each transaction retries and why they retry (such as learning which variables had write conflicts) would make it easier to tune applications when necessary.
-* write skew
-    * For example, suppose a town places a restriction (constraint) on the total number of dogs and cats that a family can own. Let's say the limit is three. When a person obtains a new dog or cat, they are entered in a database. John and his wife Mary have one dog and one cat. John adopts another dog while at the same time Mary adopts a cat. These transactions occur concurrently. Remember that transactions only see changes made by other transactions that have committed. John's transaction attempts to modify the number of dogs they own. The constraint isn't violated because they now have a total of three. Mary's transaction attempts to modify the number of cats they own. Like in the other transaction, the constraint isn't violated because they now have a total of three. Both transactions are allowed to commit, resulting in a total of four dogs and cats which violates the constraint. This is permitted because neither transaction attempts to commit a change to data that is being modified by another concurrent transaction.
 
-      Clojure provides a mechanism for avoiding write skew. See the ensure function discussed later.
-* In the context of multithreaded software applications, these terms can be described as follows. A deadlock occurs when concurrently running threads cannot proceed because they are each waiting on a resource for which another has acquired exclusive access. A livelock occurs when concurrently running threads are performing work (as opposed to be being blocked, waiting on resources), but cannot complete due to something that other threads have done or not done. A race condition occurs when the outcome of a thread is affected by the timing of changes to shared state made by another concurrently running thread.
-* The notion of composability is critical to building modular software.
-    * If we take two pieces of code that individually work correctly, the composition of the two should also be correct.
-* In transactional memory we get these aspects of ACID properties:
-
-  Atomicity — On write operations, we want atomic update, which means the update operation either should run at once or not at all.
-
-  Consistency — On read operations, we want consistent view of the state of the program that ensures us all reference to the state, gets the same value whenever they get the state.
-
-  Isolated — If we have multiple updates, we need to perform these updates in isolated transactions. So each transaction doesn't affect other concurrent transactions. No matter how many fibers are running any number of transactions. None of them have to worry about what is happening in the other transactions.
-* Advantage of Using STM
-    Composable Transaction — Combining atomic operations using locking-oriented programming is almost impossible. ZIO provides the STM data type, which has lots of combinators to compose transactions.
-
-    Declarative — ZIO STM is completely declarative. It doesn't require us to think about low-level primitives. It doesn't force us to think about the ordering of locks. Reasoning concurrent program in a declarative fashion is very simple. We can just focus on the logic of our program and run it in a concurrent environment deterministically. The user code is much simpler of course because it doesn't have to deal with the concurrency at all.
-
-    Optimistic Concurrency — In most cases, we are allowed to be optimistic, unless there is tremendous contention. So if we haven't tremendous contention it really pays to be optimistic. It allows a higher volume of concurrent transactions.
-
-    Lock-Free — All operations are non-blocking using lock-free algorithms.
-
-    Fine-Grained Locking— Coarse-grained locking is very simple to implement, but it has a negative impact on performance, while fine-grained locking significantly has better performance, but it is very cumbersome, sophisticated, and error-prone even for experienced programmers. We would like to have the ease of use of coarse-grain locking, but at the same time, we would like to have the efficiency of fine-grain locking. ZIO provides several data types which are a very coarse way of using concurrency, but they are implemented as if every single word were lockable. So the granularity of concurrency is fine-grained. It increases the performance and concurrency. For example, if we have two fibers accessing the same TArray, one of them read and write on the first index of our array, and another one is read and write to the second index of that array, they will not conflict. It is just like as if we were locking the indices, not the whole array.
-* problems
-    Large Allocations — We should be very careful in choosing the best data structure using for using STM operations. For example, if we use a single data structure with TRef and that data structure occupies a big chunk of memory. Every time we are updating this data structure during the transaction, the runtime system needs a fresh copy of this chunk of memory.
-
-    Running Expensive Operations— The beautiful feature of the retry combinator is when we decide to retry the transaction, the retry avoids the busy loop. It waits until any of the underlying transactional variables have changed. However, we should be careful about running expensive operations multiple times.
