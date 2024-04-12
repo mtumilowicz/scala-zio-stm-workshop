@@ -30,6 +30,31 @@ object BankSpec extends ZIOSpecDefault {
           } yield assertTrue(balance1 + balance2 == 2 * initialBalance)
         }
       },
+      test("sum of balances of two accounts should remain the same at any point") {
+        check(Gen.listOfN(100)(Gen.bigDecimal(0.01, 10)), genAccountId, genAccountId) { (amounts, accountId1, accountId2) =>
+          for {
+            bank <- Bank()
+            initialBalance = 10000.0
+            account1 <- bank.createBankAccount(accountId1, initialBalance)
+            account2 <- bank.createBankAccount(accountId2, initialBalance)
+
+            transfers <- (ZIO.foreachParDiscard(amounts) { amount =>
+              bank.transfer(accountId1, accountId2, amount)
+                .option
+            } <&> ZIO.foreachParDiscard(amounts) { amount =>
+              bank.transfer(accountId1, accountId2, amount)
+                .option
+            }).fork
+            checks <- ZIO.fail("should never fail")
+              .unlessZIO(for {
+                balance1 <- bank.getAccount(accountId1).map(_.balance)
+                balance2 <- bank.getAccount(accountId2).map(_.balance)
+              } yield balance1 + balance2 == 2 * initialBalance).forever.fork
+            _ <- transfers.join
+            _ <- checks.interrupt
+          } yield assertCompletes
+        }
+      },
       test("result of successful transfers should be reflected in balances") {
         check(Gen.listOfN(100)(Gen.bigDecimal(0.01, 10)), genAccountId, genAccountId) { (amounts, accountId1, accountId2) =>
           for {
