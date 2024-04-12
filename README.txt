@@ -1,3 +1,4 @@
+# scala-zio-stm-workshop
 
 * references
     * [Software Transactional Memory](https://www.youtube.com/watch?v=bLfxaHIvHfc)
@@ -23,23 +24,50 @@
     * https://www.cs.carleton.edu/faculty/dmusican/cs348/stm.html
     * https://zio.dev/reference/stm/
 
-* Within atomic blocks, you can reason about your code as if the program were sequential.
-* software transactional memory (STM) is a method of concurrency control in which shared-memory accesses are grouped into transactions which either succeed or fail to commit in their entirety.
-* The main benefits of STM are composability and modularity.
-    * That is, using STM you can write concurrent abstractions that can be easily composed with any other abstraction built using STM, without exposing the details of how your abstraction ensures safety
-    * This is typically not the case with other forms of concurrent communication, such as locks or MVars.
+# preface
+* goals of this workshop
+* workshop plan
 
-* Software Transactional Memory (STM) is a concept ported from the SQL database world – where each operation is executed within transactions that satisfy ACID (Atomicity, Consistency, Isolation, Durability) properties. Here, only Atomicity, Consistency and Isolation are satisfied because the mechanism runs in-memory.
-* "Atomic" means that either all the changes in a transaction will be made successfully (commit) or none of them will be (rollback). "Consistent" means that all the data seen by a transaction at its start and end will be consistent. In other words, constraints on the data will not be violated. "Isolated" means that changes made inside a transaction are not visible outside the transaction until it commits. "Durable" means that after a transaction has committed, changes it made will not be lost, even if there is a network, hardware or software malfunction.
+# prerequisite
+* problems with locking
+    * taking too few locks
+    * taking too many locks
+    * taking the wrong lock
+    * taking the right lock in the wrong order
+    * error recovery
+        * leaving the world in th right state
+    * lost wake-ups
+    * composition/encapsulation dies
 
-* As with databases, a transaction is a unit of work that either completes in its entirety or has no effect at all (i.e., transactions execute atomically)
-    * Further, transactions are isolated from each other such that each transaction sees a consistent view of memory.
-* never put any side effect in STM - it may be executed any arbitrary number of times
-  * send email
-* if a conflict arises on commit -> rerun
-* composable memory transaction
-* mutexes don't compose
-* all of nothing semantics
+# software transaction memory
+* concept ported from the SQL database world
+    * SQL transactions satisfy ACID (Atomicity, Consistency, Isolation, Durability) properties
+    * STM: only Atomicity, Consistency and Isolation are satisfied because the mechanism runs in-memory
+        * Atomicity
+            * effects become visible to another thread all at once
+                * example: ensures that no other thread can see a state in which money has been deposited in to but not yet withdrawn from
+            * means that either all the changes in a transaction will be made successfully (commit) or none of them will be (rollback)
+        * Isolation
+            * transactions are isolated from each other such that each transaction sees a consistent view of memory
+            * it is as if action takes a snapshot of the state of the world when it begins running, and then executes against that snapshot
+        * Consistency
+            * transactions happen successfully if there aren't any conflicting changes
+* is a method of concurrency control in which shared-memory accesses are grouped into transactions which either succeed or fail to commit in their entirety
+    * all or nothing semantics
+    * within atomic blocks, you can reason about your code as if the program were sequential
+* benefits
+    * composability
+        * easily composed with any other abstraction built using STM
+        * mutexes don't compose
+    * modularity
+        * not expose the details of how your abstraction ensures safety
+        * not the case with other forms of concurrent communication, such as locks or MVars
+* good practices
+    * never put any side effect in STM - it may be executed any arbitrary number of times
+        * if a conflict arises on commit -> rerun
+        * example: send email, fire missile
+
+
 * optimistic concurrency
   * no locks at all - you just execute code against possibly changing contents of the memory
   that other threads might be altering at the same time
@@ -71,21 +99,8 @@
       * condition: queue1.nonEmpty && queue.nonFull
     * example: move message from one queue an put in q2 if non empty or in q3 if non empty, if both empty - retry
       * composition
-* problems with locking
-  * taking too few locks
-  * taking too many locks
-  * taking the wrong lock
-  * taking the right lock in the wrong order
-  * error recovery - leaving the world in th right state
-  * lost wake ups
-  * composition/encapsulation dies
-    * example with locking accounts (lower id first), account has lock
+
 * two out of 4 ACID
-  * atomic
-    * Atomicity: the effects of atomically act become visible to another thread all at once. This ensures that no other thread can see a state in which money has been deposited in to but not yet withdrawn from from.
-  * isolated
-    * no running transaction needs to be interested what happens in other transaction
-    * Isolation: during a call atomically act, the action act is completely unaffected by other threads. It is as if act takes a snapshot of the state of the world when it begins running, and then executes against that snapshot.
   * consistent view
     * Consistency ensures that transactions always see a consistent view of the shared memory.
     * transactions happen succesfully if there aren't any conflicting changes
