@@ -46,35 +46,59 @@
 
 # prerequisite
 * problems with locking
-    * taking too few locks
-    * taking too many locks
+    * taking too few/many locks
+        * variables for which a lock should be acquired can be accessed even when no locks are acquired
     * taking the wrong lock
+        * it can be difficult to determine which lock(s) need to be obtained in order for a given block of code to execute safely
     * taking the right lock in the wrong order
+        * deadlock can easily occur unless locks are acquired in a common order
     * error recovery
-        * leaving the world in th right state
+        * developers must remember to
+            * release locks that were acquired by the failing code
+            * leave the world in th right state
     * lost wake-ups
     * composition/encapsulation dies
-* Issues with using lock-based concurrency include the following:
-  It can be difficult to determine which lock(s) need to be obtained in order for a given block of code to execute safely.
-  Variables for which a lock should be acquired can be accessed even when the wrong lock(s) are acquired and even when no locks are acquired.
-  A thread is in a deadlock state when it is unable to acquire all the locks it needs to proceed because other threads own them and are themselves deadlocked. This can easily occur unless locks are acquired in a common order.
-  Recovering from errors can be complicated because developers must remember to release locks that were acquired by the failing code.
-  Correctly synchronized methods cannot be composed into compound methods without additional synchronization.
-  The lock-based approach is pessimistic. It assumes that if multiple threads are each running sections of code that access the same memory then only one at a time can safely run. This is not always true. Making this assumption reduces the amount of concurrent processing that can occur.
+        * synchronized methods cannot be composed into compound methods without additional synchronization
+        * sequential composition of two thread-safe actions is no longer thread-safe
+            * other threads may interfere in between of these actions
+            * applying a third lock to protect both may lead to common sources of errors like deadlocks or race conditions
+    * pessimistic approach
+    * coarse-grained locking is very simple to implement, but it has a negative impact on performance
+    * fine-grained locking has better performance, but it is very cumbersome, sophisticated, and error-prone
+        * example: locking the indices, not the whole array
+    * priority inversion
+        * higher priority process waits until resource is released by a lower priority process
+* optimistic concurrency
+    * enable non-conflicting transactions to execute and commit concurrently, increasing throughput
+    * motivated by Lamport’s argument "contention for [shared objects] is rare in a well-designed system"
+    * if we haven't tremendous contention it really pays to be optimistic
+        * allows a higher volume of concurrent transactions
+* compare-and-swap
+    * https://github.com/mtumilowicz/java12-fundamentals-nonblocking-stack-workshop
+    * https://github.com/mtumilowicz/java-concurrency-compare-and-swap
+    * example: fibonacci
+        ```
+        AtomicReference<Tuple> fib = new AtomicReference<>((0, 1));
 
-* Coarse-grained locking is very simple to implement, but it has a negative impact on performance, while fine-grained locking significantly has better performance, but it is very cumbersome, sophisticated, and error-prone even for experienced programmers. We would like to have the ease of use of coarse-grain locking, but at the same time, we would like to have the efficiency of fine-grain locking. ZIO provides several data types which are a very coarse way of using concurrency, but they are implemented as if every single word were lockable. So the granularity of concurrency is fine-grained. It increases the performance and concurrency. For example, if we have two fibers accessing the same TArray, one of them read and write on the first index of our array, and another one is read and write to the second index of that array, they will not conflict. It is just like as if we were locking the indices, not the whole array.
-* The
-  traditional lock-based parallel programming techniques are error prone
-  and suffer from various problems such as deadlocks, live-locks,
-  priority inversion etc
-  * Priority Inversion: Priority inversion takes place when a lower priority process is
-    holding a resource which is required by a higher priority process, which makes the higher priority
-    process wait until resource is released.
-
-* With locks the sequential composition of two two threadsafe actions is no longer threadsafe because other threads may interfer in between of these actions. Applying a third lock to protect both may lead to common sources of errors like deadlocks or race conditions.
-
+        public long next() {
+            return fib.updateAndGet(current -> new Tuple(current.snd, current.fst + current.snd)).snd;
+        }
+        ```
 
 # software transaction memory
+* is compare and swap stretched on multiple state
+    ```
+    data FibState = FibState { prev :: TVar Integer, curr :: TVar Integer }
+
+    nextFib :: FibState -> STM Integer
+    nextFib (FibState prevVar currVar) = do
+      prevNum <- readTVar prevVar
+      currNum <- readTVar currVar
+      let next = prevNum + currNum
+      writeTVar prevVar currNum
+      writeTVar currVar next
+      return next
+    ```
 * concept ported from the SQL database world
     * SQL transactions satisfy ACID (Atomicity, Consistency, Isolation, Durability) properties
     * STM: only Atomicity, Consistency and Isolation are satisfied because the mechanism runs in-memory
@@ -94,6 +118,13 @@
 * is a technique for allowing multiple state-changing operations to be grouped together and performed as a single atomic operation
     * all or nothing semantics
     * within atomic blocks, you can reason about your code as if the program were sequential
+* retry
+    * if any memory that is written within transaction "A" is modified and committed by transaction "B" before "A" commits, the code in "A" is rerun
+    * meaning is simply "abandon the current transaction and run it again"
+    * if a retry action is performed, the current transaction is abandoned and retried at some later time
+        * it would be correct to retry the transaction immediately, but it would also be inefficient
+            * example: state of the account will probably be unchanged, so the transaction will again hit the retry
+        * an efficient implementation would instead wait until some other thread writes to account
 * benefits
     * composability
         * easily composed with any other abstraction built using STM
@@ -113,27 +144,13 @@
         * reasoning is simplified
             * just focus on the logic of our program and run it in a concurrent environment deterministically
         * user code is much simpler of course because it doesn't have to deal with the concurrency at all
-    * optimistic concurrency
-        * This optimism can enable non-conflicting transactions to execute and commit concurrently, increasing throughput. Such designs are motivated by
-          Lamport’s argument that “contention for [shared objects] is rare in a well-designed
-          system” [31], and thus such systems perform well when contention is low
-        * if we haven't tremendous contention it really pays to be optimistic
-            * allows a higher volume of concurrent transactions
-        * lock-free - all operations are non-blocking
-        * implementations can guarantee that deadlock, livelock and race conditions will never occur
-            * deadlock = threads cannot proceed because they are each waiting on a resource for which another thread has acquired exclusive access
-            * livelock = threads are performing work, but cannot complete due to something that other threads have done or not done
-            * race condition = outcome of a thread is affected by the timing of changes to shared state made by another thread
-    * Robustness in the presence of failure and cancellation
-        * A transaction in progress is aborted if an exception occurs, so STM makes it easy
-        to maintain invariants on state in the presence of exceptions
-* The meaning of retry is simply “abandon the current transaction and run it again.”
-    * The STM implementation knows that there is no point
-      rerunning the transaction unless something different is likely to happen, and
-      that can be true only if one or more of the TVars that were read by the current
-      transaction have changed.
-* The semantics of retry are simple: if a retry action is performed, the current transaction is abandoned and retried at some later time. It would be correct to retry the transaction immediately, but it would also be inefficient: the state of the account will probably be unchanged, so the transaction will again hit the retry. An efficient implementation would instead block the thread until some other thread writes to acc.
-*  If any memory that is written within transaction "A" is modified and committed by transaction "B" before "A" commits, the code in "A" is rerun
+    * easy to maintain invariants on state in the presence of exceptions
+        * transaction in progress is aborted if an exception occurs
+    * lock-free - all operations are non-blocking
+    * implementations can guarantee that deadlock, livelock and race conditions will never occur
+        * deadlock = threads cannot proceed because they are each waiting on a resource for which another thread has acquired exclusive access
+        * livelock = threads are performing work, but cannot complete due to something that other threads have done or not done
+        * race condition = outcome of a thread is affected by the timing of changes to shared state made by another thread
 * drawbacks
     * potential for a large number of transaction retries resulting in wasted work
     * overhead imposed by transaction bookkeeping such as storing histories of committed values, storing in-transaction values and acquiring locks before committing changes
@@ -141,8 +158,7 @@
         * example
             * learning which variables had write conflicts
             * identify how often each transaction retries and why they retry would make it easier to tune applications when necessary
-    * when multiple threads are
-      blocked in STM transactions that depend on a particular TVar, and the TVar is modified
+    * when multiple threads are waiting in transactions that depend on a particular TVar, and the TVar is modified
       by another thread, it is not enough to just wake up one of the blocked transactions—
       the runtime must wake them all
       * A transaction can block on an arbitrary condition, so the runtime doesn’t know whether
