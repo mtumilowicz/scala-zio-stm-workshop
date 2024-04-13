@@ -153,6 +153,11 @@
             * write set of t1 overlaps with read set of t2
             * write set of t2 overlaps with read set of t1
     * meaning is simply "abandon the current transaction and run it again"
+    * transaction can be rolled back only if we can track exactly what effects it has
+        * not be possible if arbitrary I/O were allowed inside a transaction
+            * some I/O cannot be undone, like making a noise
+        * range of side effects for STM actions is much smaller
+            * only read or write a transactional variable
     * log contains a record of all the readTVar operations => can be used to discover the full set of TVars read during the transaction
         * which we need to know in order to implement retry
     * if a retry action is performed, the current transaction is abandoned and retried at some later time
@@ -234,42 +239,22 @@
     * employ commutative and idempotent operations
         * they do not cause any conflicts and can be safely executed in any order or multiple times
 * haskell context
-    * vs IO
-        * An STM action is like an IO action, in that it can have side effects, but the range of side effects for STM actions is much smaller. The main thing you can do in an STM action is read or write a transactional variable, of type (TVar a), much as we could read or write IORefs in an IO action8.
-        * A transaction can be rolled back only if we can track
-          exactly what effects it has, and this would not be possible if arbitrary
-          I/O were allowed inside a transaction—we might have performed some
-          I/O that cannot be undone, like making a noise or launching some
-          missiles.
-    * orElse :: STM a -> STM a -> STM a
-      The operation orElse a b has the following behavior:
-      • First, a is executed. If a returns a result, then the orElse call returns it and ends.
-      • If a calls retry instead, a’s effects are discarded_ and b is executed instead.
-      * The orElse operator lets us combine two blocking transactions such that one is per‐
-        formed but not both.
-    * What if validation fails? Then the transaction has had an inconsistent view of memory.
-        * However, notice that it is crucial that act contains no effects other than reads and writes on TVars
-            ```
-            atomically (do x <- readTVar xv
-                           y <- readTVar yv
-                           if x>y then launchMissiles
-                                  else return () )
-            ```
-            * where launchMissiles :: IO () causes serious international side-effects
-            * Fortunately, the type system prevents us running IO actions inside STM actions, so the above fragment would be rejected by the type checker
-    * We now turn our attention to choice. Suppose you want to withdraw money from account A if it has enough money, but if not then withdraw it from account B?
-        * For that, we need the ability to choose an alternative action if the first one retries. To support choice, STM Haskell has one further primitive action, called orElse
+    * type system prevents us running IO actions inside STM actions
+    * ability to choose an alternative action if the first one retries
+        * example: withdraw money from account A if it has enough money, but if not then withdraw it from account B
+        * orElse :: STM a -> STM a -> STM a
+        * lets us combine two blocking transactions such that one is performed but not both
+        * has the following behavior:
+            * first action is executed
+                * if returns a result => orElse call returns it and ends
+                * if calls retry => first action’s effects are discarded_ and second action is executed instead
 * clojure context
-    * write skew
-        * For example, suppose a town places a restriction (constraint) on the total number of dogs and cats that a family can own. Let's say the limit is three. When a person obtains a new dog or cat, they are entered in a database. John and his wife Mary have one dog and one cat. John adopts another dog while at the same time Mary adopts a cat. These transactions occur concurrently. Remember that transactions only see changes made by other transactions that have committed. John's transaction attempts to modify the number of dogs they own. The constraint isn't violated because they now have a total of three. Mary's transaction attempts to modify the number of cats they own. Like in the other transaction, the constraint isn't violated because they now have a total of three. Both transactions are allowed to commit, resulting in a total of four dogs and cats which violates the constraint. This is permitted because neither transaction attempts to commit a change to data that is being modified by another concurrent transaction.
-
-          Clojure provides a mechanism for avoiding write skew. See the ensure function discussed later.
-    * In reading the STM literature one problem I saw often was read-tracking, which I definitely wanted to avoid for performance reasons. In the database world, one technique for avoiding read tracking and read locks is multiversion concurrency control (MVCC)
-        * It seemed to me that MVCC was a great fit for persistent data structures which supported
-        efficient update with structural sharing, making versioning cheap.
-        * So I designed and built an STM around MVCC. (Clojure)
-            * The Clojure STM implementation is based on multi-version concurrency control (MVCC) [16] and snapshot isolation [17].
-        * In basic MVCC only writes are tracked, and all reads are done with a consistent basis (as of the transaction start, and incorporating within-transaction writes)
-        * However MVCC can be subject to write-skew, where the basis of a write to X is a read of Y, and Y is not otherwise written, and thus not ensured consistent at transaction end.
-           * Clojure’s STM offers an ensure operation for opt-in tracking of such reads when needed.
-        * In MVCC, each transaction operates on a snapshot of the database at a specific point in time, allowing readers to access consistent data without being blocked by writers.
+    * designed and built an STM around multi-version concurrency control (MVCC) and snapshot isolation
+        * In MVCC, each transaction operates on a snapshot of the database at a specific point in time, allowing readers to access consistent data without being blocked by writers
+    * in basic MVCC only writes are tracked
+    * all reads are done with a consistent basis
+        * as of the transaction start, and incorporating within-transaction writes
+    * can be subject to write-skew
+        * example: write to X depends on read of Y, and Y is not otherwise written, and thus not ensured consistent at transaction end
+        * Clojure provides a mechanism for avoiding write skew
+            * `ensure` operation for opt-in tracking of reads when needed
