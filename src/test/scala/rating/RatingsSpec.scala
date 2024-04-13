@@ -31,7 +31,7 @@ object RatingsSpec extends ZIOSpecDefault {
             topRef <- TRef.make(Top(top)).commit
             all <- TMap.empty[String, Int].commit
             ratings = Ratings(topRef, all)
-            _ <- ratings.addAll(list)
+            _ <- ratings.add(list)
             allValues <- all.toMap.commit
             topValues <- ratings.top.get.map(_.values).commit
           } yield assertTrue(
@@ -46,7 +46,7 @@ object RatingsSpec extends ZIOSpecDefault {
             topRef <- TRef.make(Top(size)).commit
             all <- TMap.empty[String, Int].commit
             ratings = Ratings(topRef, all)
-            addingJob <- ratings.addAll(list).fork
+            addingJob <- ratings.add(list).fork
             checkingJob <- (for {
               allValues <- all.toMap.commit
               topValues <- ratings.top.get.map(_.values).commit
@@ -64,5 +64,5 @@ object RatingsSpec extends ZIOSpecDefault {
     )
 }
 
-extension (ratings: Ratings) def addAll(values: List[(String, Int)]): UIO[Unit] =
+extension (ratings: Ratings) def add(values: List[(String, Int)]): UIO[Unit] =
   ZIO.foreachParDiscard(values) { value => ratings.add.tupled(value) }
