@@ -96,7 +96,7 @@
         ```
 
 # software transaction memory
-* is compare and swap stretched on multiple state
+* is compare-and-swap stretched on multiple state (TVar)
     ```
     data FibState = FibState { prev :: TVar Integer, curr :: TVar Integer }
 
@@ -128,13 +128,42 @@
 * is a technique for allowing multiple state-changing operations to be grouped together and performed as a single atomic operation
     * all or nothing semantics
     * within atomic blocks, you can reason about your code as if the program were sequential
+* steps
+    1. when (atomically act) is performed, a thread-local transaction log is allocated, initially empty
+    1. action act is performed, without taking any locks at all
+    1. while performing act, each call to writeTVar writes the address of the TVar and its new value into the log
+        * it does not write to the TVar itself
+        * each call to readTVar first searches the log
+            * readTVar is an O(n) operation in the length of the log
+            * in case the TVar was written by an earlier call to writeTVar
+            * if no such record is found, the value is read from the TVar itself, and the TVar and value read are recorded in the log
+                * in the meantime, other threads might be running their own atomic blocks, reading and writing TVars like crazy
+    1. when the action act is finished, the implementation first validates the log and, if validation is successful, commits the log
+        * validation step examines each readTVar recorded in the log, and checks that the value in the log matches the value currently in the real TVar
+            * if so => validation succeeds
+            * if no => abort & retry
+                * nothing has happen in main memory yet
+    1. commit step takes all the writes recorded in the log and writes them into the real TVars
+        * process takes place atomically by locking all the TVars involved in the transaction for the duration
+            * transactions operating on disjoint sets of TVars can proceed without interference
 * retry
     * if any memory that is written within transaction "A" is modified and committed by transaction "B" before "A" commits, the code in "A" is rerun
+        * transaction t1 and t2 conflict when
+            * their write sets overlap
+            * write set of t1 overlaps with read set of t2
+            * write set of t2 overlaps with read set of t1
     * meaning is simply "abandon the current transaction and run it again"
+    * log contains a record of all the readTVar operations => can be used to discover the full set of TVars read during the transaction
+        * which we need to know in order to implement retry
     * if a retry action is performed, the current transaction is abandoned and retried at some later time
         * it would be correct to retry the transaction immediately, but it would also be inefficient
             * example: state of the account will probably be unchanged, so the transaction will again hit the retry
-        * an efficient implementation would instead wait until some other thread writes to account
+        * an efficient implementation would instead wait until some other thread writes to TVar
+            * each TVar has a watch list of threads that should be woken up if the TVar is modified
+            * retry adds the current thread to the watch list of all the TVars read during the current transaction
+    * discarding the effects of a transaction is easy; we just throw away the log
+        * writeTVar operations are kept in the log rather than applied to main memory immediately
+        * hence, aborting a transaction has a fixed small cost
 * benefits
     * composability
         * easily composed with any other abstraction built using STM
@@ -204,46 +233,6 @@
         * O(n) performance of readTVar then gives O(n^2) for the whole transaction
     * employ commutative and idempotent operations
         * they do not cause any conflicts and can be safely executed in any order or multiple times
-* implementation overview
-    * One particularly attractive implementation is well established in the database world, namely optimistic execution. When (atomically act) is performed, a thread-local transaction log is allocated, initially empty. Then the action act is performed, without taking any locks at all. While performing act, each call to writeTVar writes the address of the TVar and its new value into the log; it does not write to the TVar itself. Each call to readTVar first searches the log (in case the TVar was written by an earlier call to writeTVar); if no such record is found, the value is read from the TVar itself, and the TVar and value read are recorded in the log. In the meantime, other threads might be running their own atomic blocks, reading and writing TVars like crazy.
-
-      When the action act is finished, the implementation first validates the log and, if validation is successful, commits the log. The validation step examines each readTVar recorded in the log, and checks that the value in the log matches the value currently in the real TVar. If so, validation succeeds, and the commit step takes all the writes recorded in the log and writes them into the real TVars.
-    * optimistic concurrency
-      * no locks at all - you just execute code against possibly changing contents of the memory
-      that other threads might be altering at the same time
-      * every time you do a read from memory you log in a thread local transaction log
-      * every time you do a write to memory you log in a thread local transaction log
-      * at the end you've got saved up a log of all the reads and writes that have happened and now you need to do something that is truly atomic
-        * programmer never sees this
-        * system has to arrange atomically read from memory all the reads that you made and check that they're the same values
-          * transaction t1 and t2 conflict when
-            * their write sets overlap
-            * write set of t1 overlaps with read set of t2
-            * write set of t2 overlaps with read set of t1
-          * if they are => write back into memory all in one atomic step
-          * if fails => commit fails and return transaction
-            * nothing has happen in memory yet
-    * By storing writeTVar operations in the log rather than applying them to main
-      memory immediately, discarding the effects of a transaction is easy; we just throw
-      away the log.
-        * Hence, aborting a transaction has a fixed small cost.
-    * Each readTVar must traverse the log to check whether the TVar was written by an
-      earlier writeTVar. Hence, readTVar is an O(n) operation in the length of the log.
-    * Because the log contains a record of all the readTVar operations, it can be used to
-      discover the full set of TVars read during the transaction, which we need to know
-      in order to implement retry.
-    * When a transaction reaches the end, the STM implementation compares the log against
-      the contents of memory.
-        * If the current contents of memory match the values read by
-          readTVar, the effects of the transaction are committed to memory, and if not, the log is
-          discarded and the transaction runs again from the beginning.
-        * This process takes place
-          atomically by locking all the TVars involved in the transaction for the duration.
-          * transactions operating on disjoint sets of
-            TVars can proceed without interference.
-    * each TVar has a watch list of threads that should be woken up if the
-      TVar is modified, and retry adds the current thread to the watch list of all the TVars
-      read during the current transaction.
 * haskell context
     * vs IO
         * An STM action is like an IO action, in that it can have side effects, but the range of side effects for STM actions is much smaller. The main thing you can do in an STM action is read or write a transactional variable, of type (TVar a), much as we could read or write IORefs in an IO action8.
