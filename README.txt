@@ -23,6 +23,7 @@
     * https://wiki.haskell.org/Software_transactional_memory
     * https://www.cs.carleton.edu/faculty/dmusican/cs348/stm.html
     * https://zio.dev/reference/stm/
+    * https://stackoverflow.com/questions/56384817/why-wait-with-predicate-solves-the-lost-wakeup-for-condition-variable
 
 # preface
 * goals of this workshop
@@ -57,6 +58,15 @@
             * release locks that were acquired by the failing code
             * leave the world in th right state
     * lost wake-ups
+        * example
+            * lost wakeup happens this way:
+                1. acquire the lock that protects the data
+                1. check to see whether we need to wait and we see that we do
+                1. need to release the lock because otherwise no other thread can access the data
+                1. wait for a wakeup
+            * between steps 3 and 4, another thread could acquire the lock and send a wakeup
+                * we have released the lock, so another thread can do this, but we aren't waiting yet, so we wouldn't get the signal
+            * so long as step 2 is done under the protection of the lock and steps 3 and 4 are atomic, there is no risk of a lost wakeup
     * composition/encapsulation dies
         * synchronized methods cannot be composed into compound methods without additional synchronization
         * sequential composition of two thread-safe actions is no longer thread-safe
@@ -158,52 +168,42 @@
         * example
             * learning which variables had write conflicts
             * identify how often each transaction retries and why they retry would make it easier to tune applications when necessary
-    * when multiple threads are waiting in transactions that depend on a particular TVar, and the TVar is modified
-      by another thread, it is not enough to just wake up one of the blocked transactions—
-      the runtime must wake them all
-      * A transaction can block on an arbitrary condition, so the runtime doesn’t know whether
-        any individual transaction will be able to make progress after the TVar is changed;
-            do x <- takeTMVar m
-            when (x /= 42) retry
-        * it
-          must run the transaction to find out
-        * Hence, when there are multiple transactions that
-          might be unblocked, we have to run them all; after all, they might all be able to continue
-          now.
-        * Because the runtime has to run all the blocked transactions, there is no guarantee
-          that threads will be unblocked in FIFO order and no guarantee of fairness.
-    * The text book use case for STM is keeping consistency when you want to coordinate changes between multiple refs in a concurrent system. I ask myself when would this be the case in a real life project. What kind of implementation would benefit from it? It seems that it only makes sense if you have state divided into multiple refs as opposed to concentrate state into few independent atoms.
-        * It is an awesome concept, and barely gets used outside small examples, except I think in Haskell. I think it’s difficult to ensure good performance without a lazy language, and difficult to reason about without enforced immutability and monads.
-    * Furthermore, databases are already really good at doing what refs do, so assuming the data you’re mutating is being persisted, why bring that into memory just to do what the database is built to do for you?
-    * I did not need it, that I was better off organizing all my state into a single atom.
-        * Designing with atoms results in more robust systems because of design and state is held in one place. However, there may be cases where it’s necessary to use refs but by then you’ll be dealing with other situations such as persistence because if you’re worried about distributed state, you’re probably going to be worried about what happens when the electricity goes out.
+    * transaction can block on an arbitrary condition over particular TVar => runtime must wake them all
+        * runtime doesn’t know whether any individual transaction will be able to make progress after the TVar is changed
+            * after all, they might all be able to continue now
+            * it must run the transaction to find out
+                * example
+                    ```
+                    // transaction1
+                    do x <- takeTMVar m
+                    when (x /= 42) retry
+
+                    // transaction2
+                    do x <- takeTMVar m
+                    when (x /= 43) retry
+                    ```
+        * there is no guarantee that threads will be unblocked in FIFO order and no guarantee of fairness
+    * difficult to ensure good performance without a lazy language and difficult to reason about without enforced immutability and monads
+        * barely gets used outside small examples except in Haskell
+    * databases are already really good at doing what refs do
+        * assuming the data you’re mutating is being persisted => why bring that into memory just to do what the database is built for?
+    * sometimes it is better to organize state into a single atom
 * good practices
     * never put any side effect in STM - it may be executed any arbitrary number of times
         * if a conflict arises on commit -> rerun
         * example: send email, fire missile
     * avoid large allocations
         * every time we are updating data during the transaction, the runtime system needs a fresh copy of this chunk of memory
-    * avoid running expensive operations
-    * There are two important rules of thumb:
-      • Never read an unbounded number of TVars in a single transaction because the O(n)
-      performance of readTVar then gives O(n
-      2
-      ) for the whole transaction.
-
-      • Try to avoid expensive evaluation inside a transaction because this will cause the
-      transaction to take a long time, increasing the chance that another transaction will
-
-      modify one or more of the same TVars, causing the current transaction to be re-
-      executed. In the worst case, a long-running transaction re-executes indefinitely
-
-      because it is repeatedly aborted by shorter transactions.
-    * To avoid unnecessary conflicts and aborts, you should design transactions to be short, small, and independent.
-        * Finally, employ commutative and idempotent operations when you can as these do not cause any conflicts and can be safely executed in any order or multiple times.
-    * The text book use case for STM is keeping consistency when you want to coordinate changes between multiple refs in a concurrent system. I ask myself when would this be the case in a real life project. What kind of implementation would benefit from it? It seems that it only makes sense if you have state divided into multiple refs as opposed to concentrate state into few independent atoms.
-        * It is an awesome concept, and barely gets used outside small examples, except I think in Haskell. I think it’s difficult to ensure good performance without a lazy language, and difficult to reason about without enforced immutability and monads.
-    * Furthermore, databases are already really good at doing what refs do, so assuming the data you’re mutating is being persisted, why bring that into memory just to do what the database is built to do for you?
-    * I did not need it, that I was better off organizing all my state into a single atom.
-        * Designing with atoms results in more robust systems because of design and state is held in one place. However, there may be cases where it’s necessary to use refs but by then you’ll be dealing with other situations such as persistence because if you’re worried about distributed state, you’re probably going to be worried about what happens when the electricity goes out.
+    * design short, small, and independent transactions
+        * to avoid unnecessary conflicts and aborts
+        * transaction takes a long time => increases the chance that another transaction will modify one or more of the same TVars
+            * causing the current transaction to be re-executed
+        * in the worst case, a long-running transaction re-executes indefinitely
+            * repeatedly aborted by shorter transactions
+    * never read an unbounded number of TVars in a single transaction
+        * O(n) performance of readTVar then gives O(n^2) for the whole transaction
+    * employ commutative and idempotent operations
+        * they do not cause any conflicts and can be safely executed in any order or multiple times
 * implementation overview
     * One particularly attractive implementation is well established in the database world, namely optimistic execution. When (atomically act) is performed, a thread-local transaction log is allocated, initially empty. Then the action act is performed, without taking any locks at all. While performing act, each call to writeTVar writes the address of the TVar and its new value into the log; it does not write to the TVar itself. Each call to readTVar first searches the log (in case the TVar was written by an earlier call to writeTVar); if no such record is found, the value is read from the TVar itself, and the TVar and value read are recorded in the log. In the meantime, other threads might be running their own atomic blocks, reading and writing TVars like crazy.
 
