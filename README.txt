@@ -25,27 +25,16 @@
     * https://zio.dev/reference/stm/
     * https://stackoverflow.com/questions/56384817/why-wait-with-predicate-solves-the-lost-wakeup-for-condition-variable
 
-# preface
+## preface
 * goals of this workshop
 * workshop plan
-    * case study: producer-consumer stuff
-      * one thread is producing, other thread is consuming
-      * consumer needs to block if there isn't enough data
-      * solution
-        * if the queue youre getting something out of is empty then call retry
-          * retry is the new primitive and it means abandon current transaction and re-execute
-            * execution right away => buffer is likely to be still empty and then you retry again
-              * processor would get very hot and not make much progress
-            * u want system to block until one of the things that it read on the way to that retry has changed
-              * transaction memory system is going to look at the transaction log see which locations you read and then block until one
-              of those locations has been changed by another thread
-              * no lost wakeup because system is dealing with wakeup
-        * example: move message from one queue to another queue
-          * condition: queue1.nonEmpty && queue.nonFull
-        * example: move message from one queue an put in q2 if non empty or in q3 if non empty, if both empty - retry
-          * composition
+    1. implement data structure that index values and keep top n of them aside
+    1. process messages in consecutive order specified in field
+        * message n+1 cannot be processed if message n was not processed
+    1. move actor from one supervisor into other supervisor
+    1. implement bank account transfers
 
-# prerequisite
+## prerequisite
 * problems with locking
     * taking too few/many locks
         * variables for which a lock should be acquired can be accessed even when no locks are acquired
@@ -95,20 +84,10 @@
         }
         ```
 
-# software transaction memory
+## software transaction memory
 * is compare-and-swap stretched on multiple state (TVar)
-    ```
-    data FibState = FibState { prev :: TVar Integer, curr :: TVar Integer }
-
-    nextFib :: FibState -> STM Integer
-    nextFib (FibState prevVar currVar) = do
-      prevNum <- readTVar prevVar
-      currNum <- readTVar currVar
-      let next = prevNum + currNum
-      writeTVar prevVar currNum
-      writeTVar currVar next
-      return next
-    ```
+    * example: move message from one queue to another queue
+        * condition: `source.nonEmpty` && `target.nonFull`
 * concept ported from the SQL database world
     * SQL transactions satisfy ACID (Atomicity, Consistency, Isolation, Durability) properties
     * STM: only Atomicity, Consistency and Isolation are satisfied because the mechanism runs in-memory
@@ -162,7 +141,8 @@
         * which we need to know in order to implement retry
     * if a retry action is performed, the current transaction is abandoned and retried at some later time
         * it would be correct to retry the transaction immediately, but it would also be inefficient
-            * example: state of the account will probably be unchanged, so the transaction will again hit the retry
+            * example: consumer needs to block if there isn't enough data
+                * execution right away => buffer is likely to be still empty and then you retry again
         * an efficient implementation would instead wait until some other thread writes to TVar
             * each TVar has a watch list of threads that should be woken up if the TVar is modified
             * retry adds the current thread to the watch list of all the TVars read during the current transaction
