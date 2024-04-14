@@ -86,7 +86,7 @@
         }
         ```
 
-## software transaction memory
+## software transactional memory
 * is compare-and-swap stretched on multiple state (TVar)
     * example: move message from one queue to another queue
         * condition: `source.nonEmpty` && `target.nonFull`
