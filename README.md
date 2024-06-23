@@ -32,10 +32,11 @@
    * understanding limitations of locking and optimistic concurrency
       * primitives does not compose
    * STM
-      * understanding how STM resolves problems of primitives composition
+      * showing how it generalises CAS
+      * understanding how it resolves problems of primitives composition
       * explaining pros & cons
       * suggesting good practices
-      * understand context of haskell & clojure
+      * presenting in context of haskell & clojure
 * workshop plan
     1. implement data structure that index values and keep top n of them aside
     1. process messages in consecutive order specified in field
