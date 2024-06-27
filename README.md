@@ -28,6 +28,14 @@
 
 ## preface
 * goals of this workshop
+   * understanding limitations of locking and optimistic concurrency
+      * primitives does not compose
+   * STM
+      * showing how it generalises CAS
+      * understanding how it resolves problems of primitives composition
+      * explaining pros & cons
+      * suggesting good practices
+      * presenting in context of haskell & clojure
 * workshop plan
     1. implement data structure that index values and keep top n of them aside
     1. process messages in consecutive order specified in field
@@ -85,7 +93,7 @@
         }
         ```
 
-## software transaction memory
+## software transactional memory
 * is compare-and-swap stretched on multiple state (TVar)
     * example: move message from one queue to another queue
         * condition: `source.nonEmpty` && `target.nonFull`
